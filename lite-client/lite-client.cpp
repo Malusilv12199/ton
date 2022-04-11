@@ -2248,6 +2248,27 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
     block::gen::t_Transaction.print_ref(print_limit_, outp, root, 0);
     vm::load_cell_slice(root).print_rec(print_limit_, outp);
     out << outp.str();
+	
+    // Copy from got_last_transactions
+    block::gen::Transaction::Record trans;
+    if (!tlb::unpack_cell(root, trans)) {
+      LOG(ERROR) << "cannot unpack transaction";
+      return;
+    }
+    out << "  time=" << trans.now << " outmsg_cnt=" << trans.outmsg_cnt << std::endl;
+    auto in_msg = trans.r1.in_msg->prefetch_ref();
+    if (in_msg.is_null()) {
+      out << "  (no inbound message)" << std::endl;
+    } else {
+      out << "  inbound message: " << message_info_str(in_msg, 2 * 0) << std::endl;
+      out << "    " << block::gen::t_Message_Any.as_string_ref(in_msg, 4);  // indentation = 4 spaces
+    }
+    vm::Dictionary dict{trans.r1.out_msgs, 15};
+    for (int x = 0; x < trans.outmsg_cnt && x < 100; x++) {
+      auto out_msg = dict.lookup_ref(td::BitArray<15>{x});
+      out << "  outbound message #" << x << ": " << message_info_str(out_msg, 1 * 0) << std::endl;
+      out << "    " << block::gen::t_Message_Any.as_string_ref(out_msg, 4);
+    }
   }
 }
 
