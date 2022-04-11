@@ -2166,6 +2166,102 @@ void TestNode::run_smc_method(int mode, ton::BlockIdExt ref_blk, ton::BlockIdExt
   }
 }
 
+bool unpack_addr(std::ostream& os, Ref<vm::CellSlice> csr) {
+  ton::WorkchainId wc;
+  ton::StdSmcAddress addr;
+  if (!block::tlb::t_MsgAddressInt.extract_std_address(std::move(csr), wc, addr)) {
+    os << "<cannot unpack address>";
+    return false;
+  }
+  os << wc << ":" << addr.to_hex();
+  return true;
+}
+
+bool unpack_message(std::ostream& os, Ref<vm::Cell> msg, int mode) {
+  if (msg.is_null()) {
+    os << "<message not found>";
+    return true;
+  }
+  vm::CellSlice cs{vm::NoVmOrd(), msg};
+  switch (block::gen::t_CommonMsgInfo.get_tag(cs)) {
+    case block::gen::CommonMsgInfo::ext_in_msg_info: {
+      block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
+      if (!tlb::unpack(cs, info)) {
+        LOG(DEBUG) << "cannot unpack inbound external message";
+        return false;
+      }
+      os << "EXT-IN-MSG";
+      if (!(mode & 2)) {
+        os << " TO: ";
+        if (!unpack_addr(os, std::move(info.dest))) {
+          return false;
+        }
+      }
+      return true;
+    }
+    case block::gen::CommonMsgInfo::ext_out_msg_info: {
+      block::gen::CommonMsgInfo::Record_ext_out_msg_info info;
+      if (!tlb::unpack(cs, info)) {
+        LOG(DEBUG) << "cannot unpack outbound external message";
+        return false;
+      }
+      os << "EXT-OUT-MSG";
+      if (!(mode & 1)) {
+        os << " FROM: ";
+        if (!unpack_addr(os, std::move(info.src))) {
+          return false;
+        }
+      }
+      os << " LT:" << info.created_lt << " UTIME:" << info.created_at;
+      return true;
+    }
+    case block::gen::CommonMsgInfo::int_msg_info: {
+      block::gen::CommonMsgInfo::Record_int_msg_info info;
+      if (!tlb::unpack(cs, info)) {
+        LOG(DEBUG) << "cannot unpack internal message";
+        return false;
+      }
+      os << "INT-MSG";
+      if (!(mode & 1)) {
+        os << " FROM: ";
+        if (!unpack_addr(os, std::move(info.src))) {
+          return false;
+        }
+      }
+      if (!(mode & 2)) {
+        os << " TO: ";
+        if (!unpack_addr(os, std::move(info.dest))) {
+          return false;
+        }
+      }
+      os << " LT:" << info.created_lt << " UTIME:" << info.created_at;
+      td::RefInt256 value;
+      Ref<vm::Cell> extra;
+      if (!block::unpack_CurrencyCollection(info.value, value, extra)) {
+        LOG(ERROR) << "cannot unpack message value";
+        return false;
+      }
+      os << " VALUE:" << value;
+      if (extra.not_null()) {
+        os << "+extra";
+      }
+      return true;
+    }
+    default:
+      LOG(ERROR) << "cannot unpack message";
+      return false;
+  }
+}
+
+std::string message_info_str(Ref<vm::Cell> msg, int mode) {
+  std::ostringstream os;
+  if (!unpack_message(os, msg, mode)) {
+    return "<cannot unpack message>";
+  } else {
+    return os.str();
+  }
+}
+
 void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt blkid, td::BufferSlice proof,
                                    td::BufferSlice transaction, ton::WorkchainId workchain, ton::StdSmcAddress addr,
                                    ton::LogicalTime trans_lt, bool dump) {
@@ -2269,102 +2365,6 @@ void TestNode::got_one_transaction(ton::BlockIdExt req_blkid, ton::BlockIdExt bl
       out << "  outbound message #" << x << ": " << message_info_str(out_msg, 1 * 0) << std::endl;
       out << "    " << block::gen::t_Message_Any.as_string_ref(out_msg, 4);
     }
-  }
-}
-
-bool unpack_addr(std::ostream& os, Ref<vm::CellSlice> csr) {
-  ton::WorkchainId wc;
-  ton::StdSmcAddress addr;
-  if (!block::tlb::t_MsgAddressInt.extract_std_address(std::move(csr), wc, addr)) {
-    os << "<cannot unpack address>";
-    return false;
-  }
-  os << wc << ":" << addr.to_hex();
-  return true;
-}
-
-bool unpack_message(std::ostream& os, Ref<vm::Cell> msg, int mode) {
-  if (msg.is_null()) {
-    os << "<message not found>";
-    return true;
-  }
-  vm::CellSlice cs{vm::NoVmOrd(), msg};
-  switch (block::gen::t_CommonMsgInfo.get_tag(cs)) {
-    case block::gen::CommonMsgInfo::ext_in_msg_info: {
-      block::gen::CommonMsgInfo::Record_ext_in_msg_info info;
-      if (!tlb::unpack(cs, info)) {
-        LOG(DEBUG) << "cannot unpack inbound external message";
-        return false;
-      }
-      os << "EXT-IN-MSG";
-      if (!(mode & 2)) {
-        os << " TO: ";
-        if (!unpack_addr(os, std::move(info.dest))) {
-          return false;
-        }
-      }
-      return true;
-    }
-    case block::gen::CommonMsgInfo::ext_out_msg_info: {
-      block::gen::CommonMsgInfo::Record_ext_out_msg_info info;
-      if (!tlb::unpack(cs, info)) {
-        LOG(DEBUG) << "cannot unpack outbound external message";
-        return false;
-      }
-      os << "EXT-OUT-MSG";
-      if (!(mode & 1)) {
-        os << " FROM: ";
-        if (!unpack_addr(os, std::move(info.src))) {
-          return false;
-        }
-      }
-      os << " LT:" << info.created_lt << " UTIME:" << info.created_at;
-      return true;
-    }
-    case block::gen::CommonMsgInfo::int_msg_info: {
-      block::gen::CommonMsgInfo::Record_int_msg_info info;
-      if (!tlb::unpack(cs, info)) {
-        LOG(DEBUG) << "cannot unpack internal message";
-        return false;
-      }
-      os << "INT-MSG";
-      if (!(mode & 1)) {
-        os << " FROM: ";
-        if (!unpack_addr(os, std::move(info.src))) {
-          return false;
-        }
-      }
-      if (!(mode & 2)) {
-        os << " TO: ";
-        if (!unpack_addr(os, std::move(info.dest))) {
-          return false;
-        }
-      }
-      os << " LT:" << info.created_lt << " UTIME:" << info.created_at;
-      td::RefInt256 value;
-      Ref<vm::Cell> extra;
-      if (!block::unpack_CurrencyCollection(info.value, value, extra)) {
-        LOG(ERROR) << "cannot unpack message value";
-        return false;
-      }
-      os << " VALUE:" << value;
-      if (extra.not_null()) {
-        os << "+extra";
-      }
-      return true;
-    }
-    default:
-      LOG(ERROR) << "cannot unpack message";
-      return false;
-  }
-}
-
-std::string message_info_str(Ref<vm::Cell> msg, int mode) {
-  std::ostringstream os;
-  if (!unpack_message(os, msg, mode)) {
-    return "<cannot unpack message>";
-  } else {
-    return os.str();
   }
 }
 
